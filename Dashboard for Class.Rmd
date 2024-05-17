@@ -1,0 +1,401 @@
+---
+title: "Exploring Undergraduate Enrollment Trends at US State Colleges Between 2018-2022"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse) # includes dplyr, tidyr, ggplot2, stringr, forcats, lubridate, purrr
+library(scales)
+library(magrittr)
+library(sf)
+# In your RMarkdown setup chunk
+knitr::opts_chunk$set(cache = FALSE, autodep = TRUE)
+
+```
+
+## Sidebar {.sidebar}
+
+This dashboard explores trends in undergraduate enrollment at US Colleges using data procured from IPEDS (Integrated Post-Secondary Education Data System) for the five year time period between 2018-2022. 
+
+Where applicable, I have provided annotations to highlight enrollment trends in the state of Massachusetts - home to UMass Amherst.
+
+This dashboard has been prepared based on the instructions given by @magallanes_reyes_data_2022 and @aden-buie_flexdashboard_2023.
+
+```{r}
+# Load data
+UGEnrollData <- read.csv("UG Enroll - 2018-2022.csv")
+
+# Group data by state and calculate total enrollment for each state
+Enroll_By_State <- UGEnrollData %>%
+  group_by(State) %>%
+  summarise(total_UG_2018 = sum(UG_2018, na.rm = TRUE),
+            total_UG_2022 = sum(UG_2022, na.rm = TRUE))
+
+# Create column for difference in enrollment by state
+Enroll_By_State <- Enroll_By_State %>%
+  mutate(diff_UG_22_18 = total_UG_2022 - total_UG_2018)
+
+# Create column for % difference in enrollment by state
+Enroll_By_State <- Enroll_By_State %>%
+  mutate(perc_diff_UG_22_18 = ((total_UG_2022 / total_UG_2018) * 100) - 100)
+
+# Calculate the average and median enrollment by state
+average_enrollment22 <- mean(Enroll_By_State$total_UG_2022)
+median_enrollment22 <- median(Enroll_By_State$total_UG_2022)
+average_enrollment18 <- mean(Enroll_By_State$total_UG_2018)
+median_enrollment18 <- median(Enroll_By_State$total_UG_2018)
+average_diff <- mean(Enroll_By_State$diff_UG_22_18)
+median_diff <- median(Enroll_By_State$diff_UG_22_18)
+average_percdiff <- mean(Enroll_By_State$perc_diff_UG_22_18)
+median_percdiff <- median(Enroll_By_State$perc_diff_UG_22_18)
+```
+
+## Column {.tabset .tabset-fade}
+
+### Difference in Enrollment
+
+```{r fig.width=16, fig.height=9}
+# Univariate Plot - Numerical Index or Indicator
+
+# DIFFERENCE IN ENROLLMENT - 2022 vs. 2018
+
+# Specify the state you want to highlight
+highlight_state <- "Massachusetts"  # State to be highlighted 
+
+plotdiffUG <- ggplot(Enroll_By_State, # data 
+  aes( 
+    x = diff_UG_22_18, # horizontal axis
+    y = reorder(State, -diff_UG_22_18), # vertical axis, reordered 
+    fill = ifelse(State == highlight_state, "highlight", "normal"))) +  # Conditional fill) 
+  geom_bar( # plotting a bar graph
+    stat = "identity", # plot raw values directly
+    width = 0.6) + # space between bars
+  labs( # labelling various elements
+    title = "Five-Year Difference in Undergraduate Enrollment", # viz title
+    subtitle = "By State, 2022 vs. 2018, Sorted by Largest Decline",
+    x = "Number of Undergraduate Students", y = "State", # x and y axis labels 
+    caption = "Source: Integrated Postsecondary Education Data System (IPEDS)") + # caption with data source
+  theme_classic() + # no gridlines
+  theme(
+    legend.position = "none", # remove legend 
+    plot.title = element_text(face = "bold"), # make title bold
+    plot.caption = element_text(face = "bold") # make caption bold
+  ) +
+  scale_x_continuous(labels = scales::number_format(accuracy = 1, big.mark = ",")) + # real numbers
+  scale_fill_manual(values = c("normal" = "gray", "highlight" = "blue")) # specify colours for fill
+
+# Create a data frame with labels and positions for specific bars
+plotdiffUG_labels_df <- data.frame(
+    State = c("New York", "Arizona"),  # Specify the state(s) you want to label
+    diff_UG_22_18 = c(-64207, 55405),  # Corresponding x-coordinates for the labels
+    label = c("-64,207", "55,405"))  # The actual labels
+
+# Define hjust values manually for each label based on negative and positive values
+hjust_values <- c(1.1, -0.1)  
+
+# Add labels using geom_text()
+plotdiffUG <- plotdiffUG + geom_text(data = plotdiffUG_labels_df, aes(x = diff_UG_22_18, y = State, label = label),
+hjust = hjust_values, vjust = 0.5, color = "black", size = 4, fontface = "bold")
+
+
+# Add a dotted line for median enrollment 
+plotdiffUG <- plotdiffUG + geom_vline(xintercept = median_diff, linetype = "dashed", color = "red", linewidth = 1.5) +
+geom_vline(xintercept = 0, linetype = "solid", color = "black", linewidth = 0.75) 
+
+# Annotate 
+plotdiffUG <- plotdiffUG +annotate(geom="label", x = median_diff, y = "Massachusetts", label = "     Total undergraduate enrollment in  \n  Massachusetts decreased by 15,980 students.", hjust = -0.2, color = "blue", size = 5, fontface = "bold") +
+  annotate(geom = "text", label = "Median: - 4,733",
+             y = "Texas", x = -6600, size = 4, angle = 90, hjust = -1, color = "Red", fontface = "bold") 
+
+plotdiffUG
+```
+
+### Percentage Change in Enrollment
+
+```{r fig.width=12, fig.height=6.75}
+# % DIFFERENCE IN ENROLLMENT - 2022 vs. 2018 AS A BOXPLOT
+
+UG_22_18summary <- summary(Enroll_By_State$perc_diff_UG_22_18)
+
+# Calculate the first quartile (Q1) and third quartile (Q3)
+q1 <- quantile(Enroll_By_State$perc_diff_UG_22_18, probs = 0.25)
+q3 <- quantile(Enroll_By_State$perc_diff_UG_22_18, probs = 0.75)
+
+# Calculate the interquartile range (IQR)
+iqr <- q3 - q1
+
+# Calculate the upper and lower thresholds
+upperW <- q3 + 1.5 * iqr
+lowerW <- q1 - 1.5 * iqr
+
+# Add upper and lower thresholds as ticks
+percdiffsumvals <- c(UG_22_18summary, upperW, lowerW)
+
+# Adding the summary values as vector
+percdiffsumvals <- percdiffsumvals %>% as.vector() 
+percdiffsumvals <- round(percdiffsumvals, 2)
+
+boxplotpercdiffUG <- ggplot(Enroll_By_State, # data 
+  aes(y = perc_diff_UG_22_18,
+      )) + 
+  geom_boxplot(outlier.colour = "red", size = 0.75) + # plotting a boxplot graph
+  coord_flip() + # flip so box/whisker shows horizontally
+  scale_y_continuous(breaks = percdiffsumvals) + # custom breaks on the y-axis
+  labs( 
+    title = "Five-Year Percentage Change in Undergraduate Enrollment", # viz title
+    subtitle = "By State, 2022 vs. 2018", # viz subtitle
+    y = "Percentage Change", # y axis label 
+    caption = "Source: Integrated Postsecondary Education Data System (IPEDS)") +  # caption with data source
+       theme_classic() + # no gridlines
+    theme(plot.title = element_text(face = "bold"), # make title bold
+          axis.text.y = element_blank(),
+          axis.title.y = element_blank(),
+          axis.text.x = element_text(angle = 90, vjust = 0.5),
+          plot.caption = element_text(face = "bold")) +
+    geom_hline(yintercept = upperW,
+                            color = "gray",
+                            linetype = "dashed",
+                            linewidth = 1.5) +
+    geom_hline(yintercept = lowerW,
+                            color = "gray",
+                            linetype = "dashed",
+                            linewidth = 1.5) +
+    geom_hline(yintercept = -4.9,
+                            linetype = "dotted") +
+    geom_hline(yintercept = -3.5,
+                            linetype = "dotted") +
+   geom_hline(yintercept = -5.9,
+                            linetype = "dashed",
+                            color = "blue",
+                            linewidth = 1.25) +
+   
+   annotate(geom = "text",
+             label = "Median",
+             y = -4.9-0.6, x = 0.5, size = 3.5, angle = 90, hjust = 1, fontface = "bold") +
+   annotate(geom = "text",
+             label = "Mean",
+             y = -3.5-0.6, x = 0.5, size = 3.5, angle = 90, hjust = 1,fontface = "bold") +
+   annotate(geom = "text",
+             label = "Lower Threshold",
+             y = -18.4-0.6, x = 0.5, size = 3.5, angle = 90, hjust = 1,fontface = "bold") +
+   annotate(geom = "text",
+             label = "Upper Threshold",
+             y = 8.9-0.6, x = 0.5, size = 3.5, angle = 90, hjust = 1,fontface = "bold") +
+   annotate(geom = "label",
+             label = "Undergraduate enrollment in \n Massachusetts decreased by 5.9%",
+             y = 25, x = 0.2, size = 3.5, hjust = 0.9, color = "blue", fontface = "bold") 
+
+boxplotpercdiffUG
+```
+
+### Year Over Year Percentage Change - All States
+
+```{r fig.width=16, fig.height=9}
+# Create df with school/sector/state and UG enrollment data
+UGEnrollSector <- UGEnrollData %>%
+  select(school, State, Sector, UG_2022, UG_2021, UG_2020, UG_2019, UG_2018)
+
+# Pivot from wide to long 
+UGEnrollSectorLong <- UGEnrollSector %>%
+    pivot_longer(
+        cols = starts_with("UG_"),  # Pivot columns starting with UG_
+        names_to = "Year",  # New column name for the years
+        values_to = "UG_Enrollment")  %>% # New column name for the enrollment values
+        mutate(Year = as.numeric(sub("UG_", "", Year))) # show year as YYYY not UG_YYYY
+
+# State enrollment by year, by sector
+UGEnrollByStateSector <- UGEnrollSector %>%
+    group_by(State, Sector) %>%
+    summarize(
+        # Calculate total yearly enrollment for each year
+        total_UG_2022 = sum(UG_2022, na.rm = TRUE),
+        total_UG_2021 = sum(UG_2021, na.rm = TRUE),
+        total_UG_2020 = sum(UG_2020, na.rm = TRUE),
+        total_UG_2019 = sum(UG_2019, na.rm = TRUE),
+        total_UG_2018 = sum(UG_2018, na.rm = TRUE))
+
+# Pivot from wide to long 
+UGEnrollByStateSectorLong <- UGEnrollByStateSector %>%
+    pivot_longer(
+        cols = starts_with("total_"),  # Pivot columns starting with UG_
+        names_to = "Year",  # New column name for the years
+        values_to = "UG_Enrollment")  %>% # New column name for the enrollment values
+        mutate(Year = as.numeric(sub("total_UG_", "", Year))) # show year as YYYY not UG_YYYY
+
+# Calculate YOY percentage change in enrollment for each sector and state
+UGEnrollLong_YOY <- UGEnrollByStateSectorLong %>%
+    group_by(State, Sector) %>%
+    arrange(Year) %>%
+    mutate(
+        YOY_Change = if_else(
+            is.na(lag(UG_Enrollment)) | lag(UG_Enrollment) == 0,
+            NA_real_,
+            (UG_Enrollment - lag(UG_Enrollment)) / lag(UG_Enrollment) * 100)) %>%
+    ungroup()
+
+# Calculate the overall state data and YOY percentage change
+UGEnrollLong_YOY_with_overall <- UGEnrollLong_YOY %>%
+    group_by(State, Year) %>%
+    summarize(UG_Enrollment = sum(UG_Enrollment, na.rm = TRUE)) %>%  # Total state enrollment
+    arrange(State, Year) %>%
+   # Calculate YOY percentage change for total enrollment
+    mutate(
+        YOY_Change = if_else(
+          is.na(lag(UG_Enrollment)) | lag(UG_Enrollment) == 0, NA_real_,
+            (UG_Enrollment - lag(UG_Enrollment)) / lag(UG_Enrollment) * 100), 
+         # Add Sector column as "Overall" for each row
+        Sector = "Overall") %>%
+    ungroup()
+
+# Combine the overall data with the original data frame
+UGEnrollLong_YOY_with_overall <- bind_rows(UGEnrollLong_YOY, UGEnrollLong_YOY_with_overall)
+
+# Filter out NAs for 2018
+UGEnrollLong_YOY_filtered <- UGEnrollLong_YOY_with_overall %>%
+    filter(!is.na(YOY_Change))
+
+# Calculate the ordering variable based on perc_diff_UG_22_18
+state_order <- Enroll_By_State %>%
+    arrange(perc_diff_UG_22_18) %>%
+    mutate(StateOrder = factor(State, levels = State))
+
+# Merge the ordering variable into UGEnrollLong_YOY_filtered
+UGEnrollLong_YOY_filtered <- UGEnrollLong_YOY_filtered %>%
+    left_join(state_order %>% select(State, StateOrder), by = "State")
+
+# Create a line graph of YOY percentage change, faceted by state
+faceted_YOY_graph <- ggplot(UGEnrollLong_YOY_filtered, aes(x = Year, y = YOY_Change, group = Sector, color = Sector, size = Sector)) +
+    geom_line() +  # Create line graph
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "solid", colour = "grey50", linewidth = 0.3) + 
+    labs(
+        title = "Year-over-Year Percentage Change in Undergraduate Enrollment",
+        subtitle = "2019-2022, By State and Sector (Sorted by Highest Overall Decline)",
+        caption = "Source: Integrated Postsecondary Education Data System (IPEDS)",
+        y = "Percentage Change in Enrollment",
+        color = "Sector",
+        size = "Sector",
+        x = NULL) +
+   theme_minimal() +
+  theme(plot.title = element_text(face = "bold"),
+       axis.line = element_line(colour = "grey50", linewidth = 0.6),
+       axis.text.x = element_blank(),
+       strip.text = element_text(face = "bold"),
+       plot.caption = element_text(face = "bold")) +
+     facet_wrap(~ StateOrder, scales = "free")
+
+# Customize the color palette and line types
+faceted_YOY_graph <- faceted_YOY_graph +
+    scale_color_manual(values = c("Private (Not For Profit)" = "red", "Private (For Profit)" = "green3", "Public" = "blue", "Overall" = "black")) +
+   scale_size_manual(values = c("Private (Not For Profit)" = 0.5, "Private (For Profit)" = 0.5, "Public" = 0.5, "Overall" = 1))  # Adjust line thickness
+
+faceted_YOY_graph
+```
+
+### YOY Percentage Change - Massachusetts
+
+```{r}
+# List of states you want to display in your facet plot
+selected_states <- c("Massachusetts")
+
+# Filter the data to include only the selected states and all desired sectors
+FilteredStatesandSectors <- UGEnrollLong_YOY_filtered %>%
+    filter(State %in% selected_states)
+  
+# Create the plot
+Selectedfaceted_YOY_graph <- ggplot(FilteredStatesandSectors, aes(x = Year, y = YOY_Change, group = interaction(State, Sector), color = Sector, size = Sector)) +
+    geom_line() +  # Create line graph
+    geom_point(size = 1.5) +
+    labs(
+        title = "Massachusetts YOY Percentage Change in UG Enrollment",
+        subtitle = "2019-2022",
+        caption = "Source: Integrated Postsecondary Education Data System (IPEDS)",
+        x = "Year",
+        y = "Percentage Change in Enrollment",
+        color = "Sector",
+        size = "Sector") +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold"),
+          axis.line = element_line(colour = "grey50", linewidth = 0.7),
+          strip.text = element_blank(),
+          plot.caption = element_text(face = "bold")) +
+    facet_wrap(~ StateOrder, scales = "free")
+
+# Customize the color palette and line types
+Selectedfaceted_YOY_graph <- Selectedfaceted_YOY_graph +
+    scale_color_manual(values = c("Private (Not For Profit)" = "red", "Private (For Profit)" = "green3", "Public" = "blue", "Overall" = "black")) +
+    scale_size_manual(values = c("Private (Not For Profit)" = 0.5, "Private (For Profit)" = 0.5, "Public" = 0.5, "Overall" = 1))  # Adjust line thickness
+
+Selectedfaceted_YOY_graph
+```
+
+### Map - Percentage Change by State 
+
+```{r include=FALSE}
+# Load the first-time undergraduate enrollment data
+firsttimeUGdiff <- read.csv("ChFirstEnroll.csv")
+
+# Rename columns to match those in the GeoJSON file
+colnames(firsttimeUGdiff) <- c("NAME", "perc_change")
+
+# Suppress output from st_read and st_write
+us_shapefile <- suppressMessages(suppressWarnings(st_read("cb_2023_us_state_20m.shp")))
+
+# Merge the shapefile data with the enrollment data
+us_geojson <- merge(us_shapefile, firsttimeUGdiff, by = "NAME", all.x = TRUE)
+
+# Define the GeoJSON file path
+geojson_path <- "USstates.geojson"
+
+# Overwrite the existing GeoJSON file if it exists
+if (file.exists(geojson_path)) {
+  file.remove(geojson_path)
+}
+
+# Write the new GeoJSON file
+suppressMessages(suppressWarnings(st_write(us_geojson, geojson_path, driver = "GeoJSON", append = FALSE)))
+
+# Read the newly created GeoJSON file
+us_geojson <- suppressMessages(suppressWarnings(st_read(geojson_path)))
+
+# Define the limits for the continental US
+xlim <- c(-130, -65)
+ylim <- c(24, 50)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Create the choropleth map with a red-to-green color scale
+choropleth_map2 <- ggplot(data = us_geojson) +
+  geom_sf(aes(fill = perc_change), color = "black") +
+  scale_fill_gradient2(
+    low = "firebrick1",
+    mid = "gray97",
+    high = "forestgreen",
+    midpoint = 0,
+    name = "Percentage Change"
+  ) +
+  labs(
+    title = "Overall Percentage Change in First-Time Undergraduate Enrollment",
+    subtitle = "2018-2022",
+    caption = "Source: Integrated Postsecondary Education Data System (IPEDS)"
+  ) +
+  coord_sf(xlim = xlim, ylim = ylim) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    plot.caption = element_text(face = "bold")
+  )
+
+# Display the customized map
+print(choropleth_map2)
+
+```
+
+
+
